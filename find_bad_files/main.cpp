@@ -36,21 +36,50 @@ typedef struct _OBJECT_ATTRIBUTES {
 
 
 int CheckFile(char *fileName);
+void WriteToLog(FILE *logDescr, char *fileName, bool FlagOk);
+
 
 int main(int argc, char *argv[])
 {
-	WIN32_FIND_DATA fd;
+	WIN32_FIND_DATA FindData;
 	HANDLE searchHandle;
-	//if (argc != 2)
-	//{
-	//	printf ("\nusage: %s folder_name", argv[0]);
-	//	return 0;
-	//}
-	char szDir[MAX_FILE_NAME];
+	bool flagOK = false;
 
+	char logName[MAX_FILE_NAME];
+	GetCurrentDirectory(MAX_FILE_NAME, logName);		// default name for log  \cur_dir\log.txt
+	strcat(logName, "\\log.txt");						// if /r= flag not set
+	FILE *logDescr = NULL;
+
+	if (argc < 2)
+	{
+		printf ("\nusage: %s folder_name [/o /r=log.txt]", argv[0]);
+		return 0;
+	}
+	for (int i = 2; argv[i]; i++)						// cmd args processing
+	{
+		char *pLogName = NULL;
+		if ( !stricmp(argv[i], "/o") )
+		{
+			flagOK = true;
+		} 
+		else if ( pLogName = strstr(argv[i], "/r=") )
+		{
+			GetCurrentDirectory(MAX_FILE_NAME, logName);
+			strcat(logName, "\\");
+			strcat(logName, pLogName+3);
+		}
+	}
+
+	if ( !(logDescr = fopen(logName, "w+")) )
+	{
+		printf("\nCan't open file %s\n", logName);
+		return -1;
+	}
+
+	char szDir[MAX_FILE_NAME];
 	strcpy(szDir, argv[1]);
 	strcat(szDir, "\\*");
-	if ( (searchHandle = FindFirstFile(szDir, &fd)) == INVALID_HANDLE_VALUE )
+	if ( (searchHandle = FindFirstFile(szDir, &FindData)) == INVALID_HANDLE_VALUE )
 	{
 		printf("\nCan't open dir!\n");
 		return 0;
@@ -58,52 +87,89 @@ int main(int argc, char *argv[])
 
 	strcat(argv[1], "\\");
 	int status;
-    int validFiles = 0;
-    int allFiles = 0;
-    int unknownFiles = 0;
-	while ( FindNextFile(searchHandle, &fd) )
+	int validFiles = 0;
+	int pe_16_64 = 0;
+	int allFiles = 0;
+	int unknownFiles = 0;
+	FindNextFile(searchHandle, &FindData);						// omitting ".."
+	while ( FindNextFile(searchHandle, &FindData) )
 	{
 		char fileName[MAX_FILE_NAME];
 		strcpy(fileName, argv[1]);
-		strcat(fileName, fd.cFileName);
-		if ( (status = CheckFile(fileName)) == -1)
-            printf("\n[-] %s, status = %#X", fd.cFileName, status);
-        else if ( status == 0 )
-        {
-			printf("\n[+] valid file %s", fd.cFileName);
-            validFiles++;
-        }
-		else if ( status == 0xC000012F )
-            printf("\n[-] file has no MZ %s", fd.cFileName);
-        else if ( status == 0xC0000040 )
-            printf("\n[-] {Section Too Large} for file %s",  fd.cFileName);
-        else if ( status == 0xC000007B )
-            printf("\n[-] {Bad Image} for file %s", fd.cFileName);
-/*{Bad Image} %hs is either not designed to\ run on Windows or it contains an error. 
-Try installing the program again using the original installation media or contact your system 
-administrator or the software vendor for support.*/
-        else if ( status == 0xC0000130 )
-            printf("\n[-] {e_lfarlc problem dos header} for file %s", fd.cFileName);
-/*The specified image file did not have the correct format: it did not have a proper e_lfarlc in the MZ header.*/
-        else if ( status == 0xC000035A )
-        {
-            printf("\n[!] {it appears to be a 64-bit Windows image.} for file %s", fd.cFileName);
-            unknownFiles++;
-        }
-        else 
-        {
-            printf("\n[!] unknown error %#X for file %s", status, fd.cFileName);
-            unknownFiles++;
-        }
-        allFiles++;
+		strcat(fileName, FindData.cFileName);
+		bool OkFlag = false, DeadFlag = false, flag16_64_bit = false;
 
-        //if ( (counter++ % 500) == 0)
-	    //system("pause");
+
+		if (flagOK)
+			switch ( (status = CheckFile(fileName)) )			// barely logging
+			{
+			case 0:
+				fprintf(logDescr, "\n%s : ok", fileName);
+				validFiles++;
+				break;
+			case 0xC000012F: case 0xC0000040: case 0xC000007B:
+				fprintf(logDescr, "\n%s : dead", fileName);
+				break;
+			case 0xC0000130: case 0xC0000131: case 0xC000035A:
+				fprintf(logDescr, "\n%s : pe_16_64", fileName);
+				pe_16_64++;
+				break;
+			default:
+				fprintf(logDescr, "\n%s : unknown ", fileName);
+				unknownFiles++;
+				break;
+			}
+		else													// descriptive log
+			switch ( (status = CheckFile(fileName)) )
+			{
+			case 0:
+				printf("\n[+] valid file %s", FindData.cFileName);
+				fprintf(logDescr, "\n[+] valid file %s", FindData.cFileName);
+				validFiles++;
+				break;
+			case 0xC000012F:
+				printf("\n[-] file has no MZ %s", FindData.cFileName);
+				fprintf(logDescr, "\n[-] file has no MZ %s", FindData.cFileName);
+				break;
+			case 0xC0000040:
+				printf("\n[-] {Section Too Large} for file %s",  FindData.cFileName);
+				fprintf(logDescr, "\n[-] {Section Too Large} for file %s",  FindData.cFileName);
+				break;
+			case 0xC000007B:
+				printf("\n[-] {Bad Image} for file %s", FindData.cFileName);
+				fprintf(logDescr, "\n[-] {Bad Image} for file %s", FindData.cFileName);
+				break;
+			case 0xC0000130:
+				printf("\n[!] {e_lfarlc problem dos header (16 bit)} for file %s", FindData.cFileName);
+				fprintf(logDescr, "\n[!] {e_lfarlc problem dos header (16 bit)} for file %s", FindData.cFileName);
+				pe_16_64++;
+				break;
+			case 0XC0000131:
+				printf("\n[!] {16-bit Windows image.} for file %s", FindData.cFileName);
+				fprintf(logDescr, "\n[!] {16-bit Windows image.} for file %s", FindData.cFileName);
+				pe_16_64++;
+				break;
+			case 0xC000035A:
+				printf("\n[!] {64-bit Windows image.} for file %s", FindData.cFileName);
+				fprintf(logDescr, "\n[!] {64-bit Windows image.} for file %s", FindData.cFileName);
+				pe_16_64++;
+				break;
+			default:
+				printf("\n[-] unknown error %#X for file %s", status, FindData.cFileName);
+				fprintf(logDescr, "\n[-] unknown error %#X for file %s", status, FindData.cFileName);
+				unknownFiles++;
+				break;
+			}
+		allFiles++;
+
+		//if ( (allFiles % 500) == 0)
+		// system("pause");
 	}
-    printf("\n---------------------------------------------------------------------");
-    printf("\nvalid - %d, invalid - %d, unknown - %d, all - %d\n", \
-        validFiles, (allFiles-validFiles-unknownFiles), unknownFiles, allFiles);
-    //system("pause");
+	fprintf(logDescr, "\n---------------------------------------------------------------------");
+	fprintf(logDescr, "\nvalid - %d, 16/64_bit - %d, unknown - %d, all - %d\n", \
+		validFiles, pe_16_64, unknownFiles, allFiles);
+	fclose(logDescr);
+	//system("pause");
 	return 0;
 } 
 
@@ -122,7 +188,6 @@ typedef int (WINAPI *pRtlAdjustPrivilege)(ULONG   Privilege,
 										  PBOOLEAN Enabled
 										  );
 
-
 int CheckFile(char *fileName)
 {
 	int status;
@@ -134,7 +199,7 @@ int CheckFile(char *fileName)
 		return -1;
 	}
 	HANDLE phSect;
-	ACCESS_MASK DesiredAccess = SECTION_MAP_READ;
+	ACCESS_MASK DesiredAccess = SECTION_ALL_ACCESS;
 	OBJECT_ATTRIBUTES OA;
 	UNICODE_STRING obj;
 
@@ -151,7 +216,7 @@ int CheckFile(char *fileName)
 
 	LARGE_INTEGER MaxSize;
 	MaxSize.LowPart = 1024;
-    MaxSize.HighPart = 0;
+	MaxSize.HighPart = 0;
 	pNtCreateSection pNt;
 	pRtlAdjustPrivilege pRtl;
 	pRtl = (pRtlAdjustPrivilege)GetProcAddress(GetModuleHandle(TEXT("ntdll.dll")), "RtlAdjustPrivilege");
@@ -162,13 +227,12 @@ int CheckFile(char *fileName)
 
 	status = pRtl(SE_DEBUG_PRIVILEGE, true, 0, PrevAccess);
 	status =  pNt(&phSect, DesiredAccess, NULL, &MaxSize, PAGE_READONLY, SEC_IMAGE, hFile);
-	if (status == 0)
-		return 0;
 
-    CloseHandle(hFile);
+	CloseHandle(hFile);
 	return status;
 }
 
+void WriteToLog(FILE *logDescr, char *fileName, bool FlagOk)
+{
 
-
-
+}
