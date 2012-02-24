@@ -40,16 +40,17 @@ struct State
 {
     int status;
     int validFiles;
+    int not_mz;
     int pe_16;
     int pe_64;
     int allFiles;
     int unknownFiles;
     FILE *logDescr;
-    bool FlagOK;
 };
 
 static int CheckFile(const char *fileName);
 static void WriteToLog(const char *fileName, State &st);
+static void ProcessDir(char *dir_mask, State &st);
 
 int main(int argc, char *argv[])
 {
@@ -66,7 +67,6 @@ int main(int argc, char *argv[])
 
     for (; *argp; ++argp) // cmd args processing
     {
-        char *pLogName = NULL;
         if (0 == strncmp(*argp, "/r=", 3))
         {
             logName = *argp + 3;
@@ -82,47 +82,18 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-
     for (; *argp; ++argp) // paths
     {
-        WIN32_FIND_DATA FindData;
-        HANDLE searchHandle;
-        char dir_mask[MAX_FILE_NAME];
-
-        _snprintf(dir_mask, sizeof (dir_mask) - 1, "%s/*", *argp);
-        dir_mask[sizeof (dir_mask) - 1] = '\0';
-
-        searchHandle = FindFirstFile(dir_mask, &FindData);
-        if ( searchHandle == INVALID_HANDLE_VALUE )
-        {
-            printf("Can't open dir %s!\n", dir_mask);
-            return EXIT_FAILURE;
-        }
-
-        while ( FindNextFile(searchHandle, &FindData) )
-        {
-            char filepath[MAX_FILE_NAME];
-
-            if ( FindData.dwFileAttributes == FILE_ATTRIBUTE_DIRECTORY )
-                continue;
-
-            _snprintf(filepath, sizeof (filepath) - 1, "%s/%s", *argp, FindData.cFileName);
-            dir_mask[sizeof (filepath) - 1] = '\0';
-
-            st.status = CheckFile(filepath);
-            WriteToLog(filepath, st);
-            printf(".");
-            st.allFiles++;
-        }
-        fprintf(st.logDescr, "---------------------------------------------------------------------\n");
-        fprintf(st.logDescr, "valid - %d, bad - %d, 16bit - %d 64_bit - %d, unknown - %d, all - %d\n",
-        st.validFiles, (st.allFiles - st.validFiles - st.pe_64 - st.pe_16 - st.unknownFiles)/*bad*/,
-        st.pe_16, st.pe_64, st.unknownFiles, st.allFiles);
+        ProcessDir(*argp, st);
+        
     }
-
+    fprintf(st.logDescr, "---------------------------------------------------------------------\n");
+    fprintf(st.logDescr, "valid - %d, bad - %d, not_mz - %d, 16bit - %d 64_bit - %d, unknown - %d, all - %d\n",
+            st.validFiles, (st.allFiles - st.validFiles - st.pe_64 - st.pe_16 - st.unknownFiles - st.not_mz)/*bad*/,
+            st.not_mz, st.pe_16, st.pe_64, st.unknownFiles, st.allFiles);
     fclose(st.logDescr);
     return EXIT_SUCCESS;
-} 
+}
 
 typedef int (WINAPI *pNtCreateSection)(PHANDLE SectionHandle,
                                        ACCESS_MASK DesiredAccess,
@@ -174,9 +145,7 @@ int CheckFile(const char *fileName)
     pMyNtCreateSection = (pNtCreateSection)GetProcAddress(GetModuleHandle(TEXT("ntdll.dll")), "NtCreateSection");
 
     BOOLEAN PA = false;
-    PBOOLEAN PrevAccess = &PA;
-
-    status = pMyRtlAdjustPrivilege(SE_DEBUG_PRIVILEGE, true, 0, PrevAccess);
+    status = pMyRtlAdjustPrivilege(SE_DEBUG_PRIVILEGE, true, 0, &PA);
     status =  pMyNtCreateSection(&phSect, DesiredAccess, NULL, &MaxSize, PAGE_READONLY, SEC_IMAGE, hFile);
 
     CloseHandle(hFile);
@@ -192,7 +161,8 @@ void WriteToLog(const char *fileName, State &st)
             st.validFiles++;
             break;
         case STATUS_INVALID_IMAGE_NOT_MZ:
-            fprintf(st.logDescr, "%s : bad ([-] file has no MZ)\n", fileName);
+            fprintf(st.logDescr, "%s : not_mz ([!] file has no MZ)\n", fileName);
+            st.not_mz++;
             break;
         case STATUS_INVALID_FILE_FOR_SECTION:
             fprintf(st.logDescr, "%s : bad ([-] {Bad File})\n",  fileName);
@@ -220,8 +190,47 @@ void WriteToLog(const char *fileName, State &st)
             st.unknownFiles++;
             break;
         default:
-            fprintf(st.logDescr, "%s : unknown ([-] unknown error %#X )\n", st.status, fileName);
+            fprintf(st.logDescr, "%s : unknown ([-] unknown error %#X )\n", fileName, st.status);
             st.unknownFiles++;
             break;
     }
+}
+
+void ProcessDir(char *argp, State &st)
+{
+    WIN32_FIND_DATA FindData;
+    HANDLE searchHandle;
+    char dir_mask[MAX_FILE_NAME];
+
+    _snprintf(dir_mask, sizeof (dir_mask) - 1, "%s/*", argp);
+    dir_mask[sizeof (dir_mask) - 1] = '\0';
+    searchHandle = FindFirstFile(dir_mask, &FindData);
+        if ( searchHandle == INVALID_HANDLE_VALUE )
+        {
+            printf("Can't open dir %s!\n", dir_mask);
+        }
+
+        while (FindNextFile(searchHandle, &FindData))
+        {
+            char filepath[MAX_FILE_NAME];
+            if (FindData.dwFileAttributes == FILE_ATTRIBUTE_DIRECTORY)
+            {
+                if (strcmp(FindData.cFileName, "..") == 0)
+                    continue;
+                else
+                {
+                    char subdir[MAX_FILE_NAME];
+                    _snprintf(subdir, sizeof(subdir) - 1, "%s/%s", argp, FindData.cFileName);
+                    ProcessDir(subdir, st);
+                    continue;
+                }
+            }
+            _snprintf(filepath, sizeof (filepath) - 1, "%s/%s", argp, FindData.cFileName);
+            filepath[sizeof (filepath) - 1] = '\0';
+
+            st.status = CheckFile(filepath);
+            WriteToLog(filepath, st);
+            printf(".");
+            st.allFiles++;
+        }
 }
