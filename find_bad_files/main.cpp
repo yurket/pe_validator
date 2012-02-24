@@ -7,8 +7,7 @@ typedef LONG NTSTATUS;
 #undef WIN32_NO_STATUS
 #include <ntstatus.h>
 
-#define MAX_FILES 1500
-#define MAX_FILE_NAME 255
+#define MAX_FILE_NAME           255
 
 #define OBJ_INHERIT             0x00000002L
 #define OBJ_PERMANENT           0x00000010L
@@ -18,7 +17,7 @@ typedef LONG NTSTATUS;
 #define OBJ_OPENLINK            0x00000100L
 #define OBJ_VALID_ATTRIBUTES    0x000001F2L
 
-#define SE_DEBUG_PRIVILEGE        20
+#define SE_DEBUG_PRIVILEGE      20
 
 typedef struct _UNICODE_STRING
 {
@@ -49,77 +48,79 @@ struct State
     bool FlagOK;
 };
 
-int CheckFile(char *fileName);
-void WriteToLog(char *fileName, State &st);
-
+static int CheckFile(const char *fileName);
+static void WriteToLog(const char *fileName, State &st);
 
 int main(int argc, char *argv[])
 {
-    WIN32_FIND_DATA FindData;
-    HANDLE searchHandle;
-    bool flagOK = false;
-
-    char logName[MAX_FILE_NAME];
-    GetCurrentDirectory(MAX_FILE_NAME, logName);        // default name for log  \cur_dir\log.txt
-    strcat(logName, "/log.txt");                        // if /r= flag not set
+    const char * logName = "log.txt"; //default
 
     State st;
     ZeroMemory(&st, sizeof(st));
     if (argc < 2)
     {
-        printf ("\nusage: %s folder_name [/o /r=log.txt]", argv[0]);
-        return 0;
+        printf ("usage: %s [/r=log.txt]  folder_name...\n", argv[0]);
+        return EXIT_SUCCESS;
     }
-    for (int i = 2; argv[i]; i++)                        // cmd args processing
+    char ** argp = &argv[1];
+
+    for (; *argp; ++argp) // cmd args processing
     {
         char *pLogName = NULL;
-        if ( !strcmp(argv[i], "/o") )
+        if (0 == strncmp(*argp, "/r=", 3))
         {
-            st.FlagOK = true;
-        } 
-        else if ( pLogName = strstr(argv[i], "/r=") )
-        {
-            GetCurrentDirectory(MAX_FILE_NAME, logName);
-            strcat(logName, "/");
-            strcat(logName, pLogName+3);
+            logName = *argp + 3;
         }
+        else
+            break;
     }
 
-    if ( !(st.logDescr = fopen(logName, "w+")) )
+    st.logDescr = fopen(logName, "w+");
+    if (!st.logDescr)
     {
-        printf("\nCan't open file %s\n", logName);
+        printf("Can't open file %s\n", logName);
         return EXIT_FAILURE;
     }
 
-    char szDir[MAX_FILE_NAME];
-    strcpy(szDir, argv[1]);
-    strcat(szDir, "/*");
-    if ( (searchHandle = FindFirstFile(szDir, &FindData)) == INVALID_HANDLE_VALUE )
-    {
-        printf("\nCan't open dir %s!\n", szDir);
-        return EXIT_FAILURE;
-    }
 
-    strcat(argv[1], "/");
-    while ( FindNextFile(searchHandle, &FindData) )
+    for (; *argp; ++argp) // paths
     {
-        if ( FindData.dwFileAttributes == FILE_ATTRIBUTE_DIRECTORY )
-            continue;
-        char fileName[MAX_FILE_NAME];
-        strcpy(fileName, argv[1]);
-        strcat(fileName, FindData.cFileName);
+        WIN32_FIND_DATA FindData;
+        HANDLE searchHandle;
+        char dir_mask[MAX_FILE_NAME];
 
-        st.status = CheckFile(fileName);
-        WriteToLog(fileName, st);
-        printf(".");
-        st.allFiles++;
-    }
-    fprintf(st.logDescr, "\n---------------------------------------------------------------------");
-    fprintf(st.logDescr, "\nvalid - %d, bad - %d, 16bit - %d 64_bit - %d, unknown - %d, all - %d\n", \
-        st.validFiles, (st.allFiles - st.validFiles - st.pe_64 - st.pe_16 - st.unknownFiles)/*bad*/, \
+        _snprintf(dir_mask, sizeof (dir_mask) - 1, "%s/*", *argp);
+        dir_mask[sizeof (dir_mask) - 1] = '\0';
+
+        searchHandle = FindFirstFile(dir_mask, &FindData);
+        if ( searchHandle == INVALID_HANDLE_VALUE )
+        {
+            printf("Can't open dir %s!\n", dir_mask);
+            return EXIT_FAILURE;
+        }
+
+        while ( FindNextFile(searchHandle, &FindData) )
+        {
+            char filepath[MAX_FILE_NAME];
+
+            if ( FindData.dwFileAttributes == FILE_ATTRIBUTE_DIRECTORY )
+                continue;
+
+            _snprintf(filepath, sizeof (filepath) - 1, "%s/%s", *argp, FindData.cFileName);
+            dir_mask[sizeof (filepath) - 1] = '\0';
+
+            st.status = CheckFile(filepath);
+            WriteToLog(filepath, st);
+            printf(".");
+            st.allFiles++;
+        }
+        fprintf(st.logDescr, "---------------------------------------------------------------------\n");
+        fprintf(st.logDescr, "valid - %d, bad - %d, 16bit - %d 64_bit - %d, unknown - %d, all - %d\n",
+        st.validFiles, (st.allFiles - st.validFiles - st.pe_64 - st.pe_16 - st.unknownFiles)/*bad*/,
         st.pe_16, st.pe_64, st.unknownFiles, st.allFiles);
+    }
+
     fclose(st.logDescr);
-    //system("pause");
     return EXIT_SUCCESS;
 } 
 
@@ -138,7 +139,7 @@ typedef int (WINAPI *pRtlAdjustPrivilege)(ULONG   Privilege,
                                           PBOOLEAN Enabled
                                           );
 
-int CheckFile(char *fileName)
+int CheckFile(const char *fileName)
 {
     int status;
     WCHAR objName[MAX_FILE_NAME] = L"myObject";
@@ -182,53 +183,44 @@ int CheckFile(char *fileName)
     return status;
 }
 
-void WriteToLog(char *fileName, State &st)
+void WriteToLog(const char *fileName, State &st)
 {
     switch ( st.status )
     {
         case 0:
-            //printf("\n[+] valid file %s", fileName);
-            fprintf(st.logDescr, "\n%s : ok ([+] valid file)", fileName);
+            fprintf(st.logDescr, "%s : ok ([+] valid file)\n", fileName);
             st.validFiles++;
             break;
         case STATUS_INVALID_IMAGE_NOT_MZ:
-            //printf("\n[-] file has no MZ %s", fileName);
-            fprintf(st.logDescr, "\n%s : bad ([-] file has no MZ)", fileName);
+            fprintf(st.logDescr, "%s : bad ([-] file has no MZ)\n", fileName);
             break;
         case STATUS_INVALID_FILE_FOR_SECTION:
-            //printf("\n[-] {Bad File} The attributes... for file %s",  fileName);
-            fprintf(st.logDescr, "\n%s : bad ([-] {Bad File})",  fileName);
+            fprintf(st.logDescr, "%s : bad ([-] {Bad File})\n",  fileName);
             break;
         case STATUS_SECTION_TOO_BIG:
-            //printf("\n[-] {Section Too Large} for file %s",  fileName);
-            fprintf(st.logDescr, "\n%s : bad ([-] {Section Too Large})",  fileName);
+            fprintf(st.logDescr, "%s : bad ([-] {Section Too Large})\n",  fileName);
             break;
         case STATUS_INVALID_IMAGE_FORMAT:
-            //printf("\n[-] {Bad Image} )", fileName);
-            fprintf(st.logDescr, "\n%s : bad ([-] {Bad Image})", fileName);
+            fprintf(st.logDescr, "%s : bad ([-] {Bad Image})\n", fileName);
             break;
         case STATUS_INVALID_IMAGE_PROTECT:
-            //printf("\n[!] {e_lfarlc problem dos header (16 bit)} )", fileName);
-            fprintf(st.logDescr, "\n%s : pe_16 ([!] {e_lfarlc problem dos header (16 bit)})", fileName);
+            fprintf(st.logDescr, "%s : pe_16 ([!] {e_lfarlc problem dos header (16 bit)})\n", fileName);
             st.pe_16++;
             break;
         case STATUS_INVALID_IMAGE_WIN_16:
-            //printf("\n[!] {16-bit Windows image.} )", fileName);
-            fprintf(st.logDescr, "\n%s : pe_16 ([!] {16-bit Windows image.})", fileName);
+            fprintf(st.logDescr, "%s : pe_16 ([!] {16-bit Windows image.})\n", fileName);
             st.pe_16++;
             break;
         case STATUS_INVALID_IMAGE_WIN_64:
-            //printf("\n[!] {64-bit Windows image.} )", fileName);
-            fprintf(st.logDescr, "\n%s : pe_64 ([!] {64-bit Windows image.})", fileName);
+            fprintf(st.logDescr, "%s : pe_64 ([!] {64-bit Windows image.})\n", fileName);
             st.pe_64++;
             break;
         case (-1):
-            fprintf(st.logDescr, "\n%s : unknown ([-] {got INVALID_HANDLE_VALUE from CreateFile})", fileName);
+            fprintf(st.logDescr, "%s : unknown ([-] {got INVALID_HANDLE_VALUE from CreateFile})\n", fileName);
             st.unknownFiles++;
             break;
         default:
-            //printf("\n[-] unknown error %#X )", status, fileName);
-            fprintf(st.logDescr, "\n%s : unknown ([-] unknown error %#X )", st.status, fileName);
+            fprintf(st.logDescr, "%s : unknown ([-] unknown error %#X )\n", st.status, fileName);
             st.unknownFiles++;
             break;
     }
