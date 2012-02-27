@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
     }
     char ** argp = &argv[1];
 
-    for (; *argp; ++argp) // cmd args processing
+    for (; *argp; ++argp)               // logname arg processing
     {
         if (0 == strncmp(*argp, "/r=", 3))
         {
@@ -82,11 +82,9 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    for (; *argp; ++argp) // paths
-    {
+    for (; *argp; ++argp)               // paths
         ProcessDir(*argp, st);
-        
-    }
+
     fprintf(st.logDescr, "---------------------------------------------------------------------\n");
     fprintf(st.logDescr, "valid - %d, bad - %d, not_mz - %d, 16bit - %d 64_bit - %d, unknown - %d, all - %d\n",
             st.validFiles, (st.allFiles - st.validFiles - st.pe_64 - st.pe_16 - st.unknownFiles - st.not_mz)/*bad*/,
