@@ -7,6 +7,7 @@ typedef LONG NTSTATUS;
 #undef WIN32_NO_STATUS
 #include <ntstatus.h>
 
+#define VERSION_                0.4f                  
 #define MAX_FILE_NAME           255
 
 #define OBJ_INHERIT             0x00000002L
@@ -86,9 +87,9 @@ int main(int argc, char *argv[])
         ProcessDir(*argp, st);
 
     fprintf(st.logDescr, "---------------------------------------------------------------------\n");
-    fprintf(st.logDescr, "valid - %d, bad - %d, not_mz - %d, 16bit - %d 64_bit - %d, unknown - %d, all - %d\n",
+    fprintf(st.logDescr, "valid - %d, bad - %d, not_mz - %d, 16bit - %d 64_bit - %d, unknown - %d, all - %d\nversion %.2f by yurket",
             st.validFiles, (st.allFiles - st.validFiles - st.pe_64 - st.pe_16 - st.unknownFiles - st.not_mz)/*bad*/,
-            st.not_mz, st.pe_16, st.pe_64, st.unknownFiles, st.allFiles);
+            st.not_mz, st.pe_16, st.pe_64, st.unknownFiles, st.allFiles, VERSION_);
     fclose(st.logDescr);
     return EXIT_SUCCESS;
 }
