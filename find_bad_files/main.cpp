@@ -147,6 +147,8 @@ int CheckFile(const char *fileName)
     status = pMyRtlAdjustPrivilege(SE_DEBUG_PRIVILEGE, true, 0, &PA);
     status =  pMyNtCreateSection(&phSect, DesiredAccess, NULL, &MaxSize, PAGE_READONLY, SEC_IMAGE, hFile);
 
+    if (status == 0)
+        CloseHandle(phSect);
     CloseHandle(hFile);
     return status;
 }
@@ -232,4 +234,6 @@ void ProcessDir(char *argp, State &st)
         printf(".");
         st.allFiles++;
     }
+
+    FindClose(searchHandle);
 }
