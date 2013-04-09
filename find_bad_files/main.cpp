@@ -204,32 +204,32 @@ void ProcessDir(char *argp, State &st)
     _snprintf(dir_mask, sizeof (dir_mask) - 1, "%s/*", argp);
     dir_mask[sizeof (dir_mask) - 1] = '\0';
     searchHandle = FindFirstFile(dir_mask, &FindData);
-        if ( searchHandle == INVALID_HANDLE_VALUE )
-        {
-            printf("Can't open dir %s!\n", dir_mask);
-        }
+    if ( searchHandle == INVALID_HANDLE_VALUE )
+    {
+        printf("Can't open dir %s!\n", dir_mask);
+    }
 
-        while (FindNextFile(searchHandle, &FindData))
+    while (FindNextFile(searchHandle, &FindData))
+    {
+        char filepath[MAX_FILE_NAME];
+        if (FindData.dwFileAttributes == FILE_ATTRIBUTE_DIRECTORY)
         {
-            char filepath[MAX_FILE_NAME];
-            if (FindData.dwFileAttributes == FILE_ATTRIBUTE_DIRECTORY)
+            if (strcmp(FindData.cFileName, "..") == 0)
+                continue;
+            else
             {
-                if (strcmp(FindData.cFileName, "..") == 0)
-                    continue;
-                else
-                {
-                    char subdir[MAX_FILE_NAME];
-                    _snprintf(subdir, sizeof(subdir) - 1, "%s/%s", argp, FindData.cFileName);
-                    ProcessDir(subdir, st);
-                    continue;
-                }
+                char subdir[MAX_FILE_NAME];
+                _snprintf(subdir, sizeof(subdir) - 1, "%s/%s", argp, FindData.cFileName);
+                ProcessDir(subdir, st);
+                continue;
             }
-            _snprintf(filepath, sizeof (filepath) - 1, "%s/%s", argp, FindData.cFileName);
-            filepath[sizeof (filepath) - 1] = '\0';
-
-            st.status = CheckFile(filepath);
-            WriteToLog(filepath, st);
-            printf(".");
-            st.allFiles++;
         }
+        _snprintf(filepath, sizeof (filepath) - 1, "%s/%s", argp, FindData.cFileName);
+        filepath[sizeof (filepath) - 1] = '\0';
+
+        st.status = CheckFile(filepath);
+        WriteToLog(filepath, st);
+        printf(".");
+        st.allFiles++;
+    }
 }
