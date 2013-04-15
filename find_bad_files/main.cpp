@@ -52,26 +52,28 @@ struct State
 static int CheckFile(const char *fileName);
 static void WriteToLog(const char *fileName, State &st);
 static void ProcessDir(char *dir_mask, State &st);
+static void ProcessList(const char *listname, State &st);
 
 int main(int argc, char *argv[])
 {
     const char * logName = "log.txt"; //default
+    const char * listName = NULL; //default
 
     State st;
     ZeroMemory(&st, sizeof(st));
     if (argc < 2)
     {
-        printf ("usage: %s [/r=log.txt]  folder_name...\n", argv[0]);
+        printf ("usage: %s [/iL=input_list.txt] [/r=log.txt] ...\n", argv[0]);
         return EXIT_SUCCESS;
     }
     char ** argp = &argv[1];
 
     for (; *argp; ++argp)               // logname arg processing
     {
-        if (0 == strncmp(*argp, "/r=", 3))
-        {
+        if (strncmp(*argp, "/r=", 3) == 0)
             logName = *argp + 3;
-        }
+        else if (strncmp(*argp, "/iL=", 4) == 0)
+            listName = *argp + 4;
         else
             break;
     }
@@ -83,6 +85,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    ProcessList(listName, st);
     for (; *argp; ++argp)               // paths
         ProcessDir(*argp, st);
 
@@ -236,4 +239,28 @@ static void ProcessDir(char *argp, State &st)
     }
 
     FindClose(searchHandle);
+}
+
+static void ProcessList(const char *listname, State &st)
+{
+    FILE *lfp = NULL;
+    char filepath[MAX_FILE_NAME];
+
+    if (listname == NULL)
+        return;
+
+    lfp = fopen(listname, "r");
+    if (lfp == NULL)
+    {
+        printf("Can't open %s! exit()\n", listname);
+        return;
+    }
+    while(fgets(filepath, MAX_FILE_NAME, lfp) != NULL)
+    {
+        filepath[strlen(filepath)-1] = '\0';    // fgets copy \n too, so get rid of it
+        st.status = CheckFile(filepath);
+        WriteToLog(filepath, st);
+        printf(".");
+        st.allFiles++;
+    }
 }
