@@ -109,7 +109,7 @@ typedef int (WINAPI *pRtlAdjustPrivilege)(ULONG   Privilege,
                                           PBOOLEAN Enabled
                                           );
 
-int CheckFile(const char *fileName)
+static int CheckFile(const char *fileName)
 {
     int status;
     WCHAR objName[MAX_FILE_NAME] = L"myObject";
@@ -153,7 +153,7 @@ int CheckFile(const char *fileName)
     return status;
 }
 
-void WriteToLog(const char *fileName, State &st)
+static void WriteToLog(const char *fileName, State &st)
 {
     switch ( st.status )
     {
@@ -197,7 +197,7 @@ void WriteToLog(const char *fileName, State &st)
     }
 }
 
-void ProcessDir(char *argp, State &st)
+static void ProcessDir(char *argp, State &st)
 {
     WIN32_FIND_DATA FindData;
     HANDLE searchHandle;
